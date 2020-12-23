@@ -7,7 +7,7 @@ def main():
     train_inp = ((1, 1), (0, 0), (0, 1), (1, 0))  # Логическое И
     train_out = ([1], [0], [0], [0])
 
-    epochs = 100
+    epochs = 1
     l_r = 0.1
 
     errors_y = []

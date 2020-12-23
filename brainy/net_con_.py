@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import math
 import random
-from .serial_deserial import to_file, deserialization
+#from .serial_deserial import to_file, deserialization
 import sys
 
 
@@ -33,7 +33,6 @@ NOOP = 0
 ACC_GRAD = 1
 APPLY_GRAD = 2
 DENSE = 3
-
 
 
 class Dense:
@@ -66,8 +65,10 @@ class NetCon:
             self.net_dense[l_ind] = Dense()
         self.sp_d = -1  # алокатор для слоев
         self.nl_count = 0  # количество слоев
-        self.b_c=[]
-        self.ip=0
+        self.b_c_forward = []
+        self.b_c_bacward_tmp = []
+        self.b_c_bacward = None
+        self.ip = 0
         self.ready = False
 
     def make_hidden(self, layer, inputs: list):
@@ -84,33 +85,6 @@ class NetCon:
 
     def get_hidden(self, objLay: Dense):
         return objLay.hidden
-
-    def feed_forwarding(self, inputs):
-        while self.ip < len(self.b_c):
-            op = self.b_c[self.ip]
-            if op == DENSE:
-                self.ip+=1
-                arg = self.b_c[self.ip]
-                if arg == 0:
-                   layer = self.net_dense[0] 
-                   self.make_hidden(layer, inputs)
-                else:
-                    layer = self.net_dense[arg]
-                    layer_prev = self.net_dense[arg - 1]
-                    self.make_hidden(layer, self.get_hidden(layer_prev))    
-            self.ip+=1     
-
-        """ j = self.nl_count
-        for i in range(1, j):
-            inputs = self.get_hidden(self.net_de[i - 1])
-            self.make_hidden(i, inputs)
-        """
-        self.ip=0 # сбрасываем ip так прямое распространение будет в цикле
-        
-        j = self.nl_count 
-        last_layer = self.net_dense[j-1] 
-
-        return self.get_hidden(last_layer)
 
     def cr_dense(self,   in_=0, out_=0, act_func=None, with_bias=False, init_w=INIT_W_RANDOM):
         self.sp_d += 1
@@ -132,8 +106,12 @@ class NetCon:
                 layer.biases[row] = self.operations(
                     init_w, 0)
 
-        self.b_c.append(DENSE)
-        self.b_c.append(self.sp_d)            
+        # просто байткод для прямого распространения - стек
+        self.b_c_forward.append(DENSE)
+        # байткод будет очередь для обратного распространения
+        self.b_c_bacward_tmp.append(self.sp_d)
+        self.b_c_forward.append(self.sp_d)
+        self.b_c_bacward_tmp.append(DENSE)
         self.nl_count += 1
 
     # Различные операции по числовому коду
@@ -213,17 +191,24 @@ class NetCon:
         else:
             print("Op or function does not support ", op)
 
-    def calc_out_error(self,  targets):
-        layer = self.net_dense[self.nl_count-1]
+    def get_b_c_bacward(self):
+        len_b_c_bacward = len(self.b_c_bacward_tmp)
+        self.b_c_bacward = [0]* len_b_c_bacward
+        for i in range(len_b_c_bacward):
+            # из очереди в байткод
+            self.b_c_bacward[i] = self.b_c_bacward_tmp.pop()
+
+    def calc_out_error(self, layer, targets):
+        # layer = self.net_dense[self.nl_count-1]
         out_ = layer.out_
         for row in range(out_):
             layer.errors[row] =\
                 (layer.hidden[row] - targets[row]) * self.operations(
                 layer.act_func + 1, layer.hidden[row])
 
-    def calc_hid_error(self,  layer_ind):
-        layer = self.net_dense[layer_ind]
-        layer_next = self.net_dense[layer_ind + 1]
+    def calc_hid_error(self, layer, layer_next):
+        # layer = self.net_dense[layer_ind]
+        # layer_next = self.net_dense[layer_ind + 1]
         for elem in range(layer_next.in_):
             summ = 0
             for row in range(layer_next.out_):
@@ -232,15 +217,15 @@ class NetCon:
             layer.errors[elem] = summ * self.operations(
                 layer.act_func + 1, layer.hidden[elem])
 
-    def upd_matrix(self, layer_ind, errors, inputs, lr):
-        layer = self.net_dense[layer_ind]
+    def upd_matrix(self, layer, errors, inputs, lr):
+        # layer = self.net_dense[layer_ind]
         for elem in range(layer.in_):
             for row in range(layer.out_):
                 error = errors[row]
                 layer.matrix[row][elem] -= lr * \
                     error * inputs[elem]
                 if layer.with_bias:
-                   layer.biases[row] -= error * 1
+                    layer.biases[row] -= error * 1
 
     def calc_diff(self, out_nn, teacher_answ):
         diff = [0] * len(out_nn)
@@ -254,8 +239,31 @@ class NetCon:
             sum += diff[row] * diff[row]
         return sum
 
-    def backpropagate(self, y, x, l_r):
+    def feed_forwarding(self, inputs):
+        len_b_c_forward = len(self.b_c_forward)
+        while self.ip < len_b_c_forward:
+            op = self.b_c_forward[self.ip]
+            if op == DENSE:
+                self.ip += 1
+                arg = self.b_c_forward[self.ip]
+                if arg == 0:
+                    layer = self.net_dense[0]
+                    self.make_hidden(layer, inputs)
+                else:
+                    layer = self.net_dense[arg]
+                    layer_prev = self.net_dense[arg - 1]
+                    self.make_hidden(layer, self.get_hidden(layer_prev))
+            self.ip += 1
+
+        self.ip = 0  # сбрасываем ip так прямое распространение будет в цикле
+
         j = self.nl_count
+        last_layer = self.net_dense[j-1]
+
+        return self.get_hidden(last_layer)
+
+    def backpropagate(self, y, x, l_r):
+        """ j = self.nl_count
         for i in range(j - 1, -1, - 1):
             if i == j - 1:
                 self.calc_out_error(y)
@@ -268,7 +276,46 @@ class NetCon:
             self.upd_matrix(i, layer.errors, layer_prev.hidden, l_r)
 
         self.upd_matrix(0, self.net_dense[0].errors,
-                        x, l_r)
+                        x, l_r) """
+
+        len_b_c_bacward = len(self.b_c_bacward)
+
+        while self.ip < len_b_c_bacward:
+            op = self.b_c_bacward[self.ip]
+            if op == DENSE:
+                self.ip += 1
+                arg = self.b_c_bacward[self.ip]
+                if arg == self.nl_count-1:
+                    layer = self.net_dense[arg]
+                    layer_prev = self.net_dense[arg - 1]
+                    self.calc_out_error(layer, y)
+                    self.upd_matrix(layer, layer.errors,
+                                   layer_prev.hidden, l_r)
+                elif arg == 0:
+                    print('op2')
+                    layer = self.net_dense[0]
+                    layer_next = self.net_dense[arg + 1]
+                    self.calc_hid_error(layer, layer_next)
+                    self.upd_matrix(layer, layer.errors,
+                                    x, l_r)
+                else:
+                    layer = self.net_dense[arg]
+                    layer_next = self.net_dense[arg + 1]
+                    layer_prev = self.net_dense[arg - 1]
+                    self.calc_hid_error(layer, layer_next)
+                    self.upd_matrix(layer, layer.errors,
+                                   layer_prev.hidden, l_r)
+                """ j = self.nl_count      
+                for i in range(j - 1, 0, - 1):
+                  layer = self.net_dense[i]
+                  layer_prev = self.net_dense[i - 1]
+                  self.upd_matrix(layer, layer.errors, layer_prev.hidden, l_r)
+
+                self.upd_matrix(self.net_dense[0], self.net_dense[0].errors,
+                        x, l_r)    """   
+            self.ip += 1
+
+        self.ip = 0  # сбрасываем ip так обратное распространение будет в цикле
 
     def answer_nn_direct(self, inputs):
         out_nn = self.feed_forwarding(inputs)
@@ -337,17 +384,18 @@ class NetCon:
         plt.show()
 
     def __str__(self):
-        return str(self.b_c)    
+        return "bc"+str(self.b_c_forward)+"rev b_c"+str(self.b_c_bacward)
 #############################################
 
 
-train_inp = ((1, 1), (0, 0), (0, 1), (1, 0))  # Логическое И
-train_out = ([1], [0], [0], [0])
-
-if __name__ == '__main__()':
+if __name__ == '__main__':
 
     def main():
-        epochs = 1000
+
+        train_inp = ((1, 1), (0, 0), (0, 1), (1, 0))  # Логическое И
+        train_out = ([1], [0], [0], [0])
+
+        epochs = 100
         l_r = 0.1
 
         errors_y = []
@@ -357,8 +405,10 @@ if __name__ == '__main__()':
 
         net = NetCon()
         # Создаем слои
-        net.cr_lay(2, 3, PIECE_WISE_LINEAR, True, INIT_W_MY)
-        net.cr_lay(3, 1, PIECE_WISE_LINEAR, True, INIT_W_MY)
+        net.cr_dense(2, 3, PIECE_WISE_LINEAR, True, INIT_W_MY)
+        net.cr_dense(3, 1, PIECE_WISE_LINEAR, True, INIT_W_MY)
+        net.get_b_c_bacward()
+        print('net', net)
 
         for ep in range(epochs):  # Кол-во повторений для обучения
             gl_e = 0
@@ -374,7 +424,7 @@ if __name__ == '__main__()':
                 net.backpropagate(train_out[single_array_ind],
                                   train_inp[single_array_ind], l_r)
 
-            # gl_e /= 2
+            #gl_e /= 2
             print("error", gl_e)
             print("ep", ep)
             print()
@@ -385,37 +435,9 @@ if __name__ == '__main__()':
             if gl_e == 0:
                 break
 
-        plot_gr('gr.png', errors_y, epochs_x)
+        net.plot_gr('gr.png', errors_y, epochs_x)
+        acc = net.evaluate(train_inp, train_out)
+        print('acc', acc)
 
-        # пост оценка - evaluate()
-        for single_array_ind in range(len(train_inp)):
-            inputs = train_inp[single_array_ind]
-
-            output_2_layer = net.feed_forwarding(inputs)
-
-            equal_flag = 0
-            out_net = net.net[1].out_
-            for row in range(out_net):
-                elem_net = output_2_layer[row]
-                elem_train_out = train_out[single_array_ind][row]
-                if elem_net > 0.5:
-                    elem_net = 1
-                else:
-                    elem_net = 0
-                print("elem:", elem_net)
-                print("elem tr out:", elem_train_out)
-                if elem_net == elem_train_out:
-                    equal_flag = 1
-                else:
-                    equal_flag = 0
-                    break
-            if equal_flag == 1:
-                print('-vecs are equal-')
-            else:
-                print('-vecs are not equal-')
-
-            print("========")
-
-        # to_file(nn_params, nn_params.net, loger, 'wei1.my')
 
     main()
