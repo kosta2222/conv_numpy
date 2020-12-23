@@ -32,6 +32,8 @@ MODIF_MSE = 20
 NOOP = 0
 ACC_GRAD = 1
 APPLY_GRAD = 2
+DENSE = 3
+
 
 
 class Dense:
@@ -56,18 +58,20 @@ class Dense:
 
 class NetCon:
     def __init__(self, alpha_sigmoid=1, alpha_tan=1, beta_tan=1):
-        self.net = [None] * 2  # Двойной перпецетрон
+        self.net_dense = [None] * 2  # Двойной перпецетрон
         self.alpha_sigmoid = alpha_sigmoid
         self.alpha_tan = alpha_tan
         self.beta_tan = beta_tan
         for l_ind in range(2):
-            self.net[l_ind] = Dense()
+            self.net_dense[l_ind] = Dense()
         self.sp_d = -1  # алокатор для слоев
         self.nl_count = 0  # количество слоев
+        self.b_c=[]
+        self.ip=0
         self.ready = False
 
-    def make_hidden(self, layer_ind, inputs: list):
-        layer = self.net[layer_ind]
+    def make_hidden(self, layer, inputs: list):
+        # layer = self.net[layer_ind]
         for row in range(layer.out_):
             tmp_v = 0
             for elem in range(layer.in_):
@@ -82,19 +86,35 @@ class NetCon:
         return objLay.hidden
 
     def feed_forwarding(self, inputs):
-        self.make_hidden(0, inputs)
-        j = self.nl_count
-        for i in range(1, j):
-            inputs = self.get_hidden(self.net[i - 1])
-            self.make_hidden(i, inputs)
+        while self.ip < len(self.b_c):
+            op = self.b_c[self.ip]
+            if op == DENSE:
+                self.ip+=1
+                arg = self.b_c[self.ip]
+                if arg == 0:
+                   layer = self.net_dense[0] 
+                   self.make_hidden(layer, inputs)
+                else:
+                    layer = self.net_dense[arg]
+                    layer_prev = self.net_dense[arg - 1]
+                    self.make_hidden(layer, self.get_hidden(layer_prev))    
+            self.ip+=1     
 
-        last_layer = self.net[j-1]
+        """ j = self.nl_count
+        for i in range(1, j):
+            inputs = self.get_hidden(self.net_de[i - 1])
+            self.make_hidden(i, inputs)
+        """
+        self.ip=0 # сбрасываем ip так прямое распространение будет в цикле
+        
+        j = self.nl_count 
+        last_layer = self.net_dense[j-1] 
 
         return self.get_hidden(last_layer)
 
-    def cr_lay(self,   in_=0, out_=0, act_func=None, with_bias=False, init_w=INIT_W_RANDOM):
+    def cr_dense(self,   in_=0, out_=0, act_func=None, with_bias=False, init_w=INIT_W_RANDOM):
         self.sp_d += 1
-        layer = self.net[self.sp_d]
+        layer = self.net_dense[self.sp_d]
         layer.in_ = in_
         layer.out_ = out_
         layer.act_func = act_func
@@ -111,6 +131,9 @@ class NetCon:
             if layer.with_bias:
                 layer.biases[row] = self.operations(
                     init_w, 0)
+
+        self.b_c.append(DENSE)
+        self.b_c.append(self.sp_d)            
         self.nl_count += 1
 
     # Различные операции по числовому коду
@@ -191,7 +214,7 @@ class NetCon:
             print("Op or function does not support ", op)
 
     def calc_out_error(self,  targets):
-        layer = self.net[self.nl_count-1]
+        layer = self.net_dense[self.nl_count-1]
         out_ = layer.out_
         for row in range(out_):
             layer.errors[row] =\
@@ -199,8 +222,8 @@ class NetCon:
                 layer.act_func + 1, layer.hidden[row])
 
     def calc_hid_error(self,  layer_ind):
-        layer = self.net[layer_ind]
-        layer_next = self.net[layer_ind + 1]
+        layer = self.net_dense[layer_ind]
+        layer_next = self.net_dense[layer_ind + 1]
         for elem in range(layer_next.in_):
             summ = 0
             for row in range(layer_next.out_):
@@ -210,7 +233,7 @@ class NetCon:
                 layer.act_func + 1, layer.hidden[elem])
 
     def upd_matrix(self, layer_ind, errors, inputs, lr):
-        layer = self.net[layer_ind]
+        layer = self.net_dense[layer_ind]
         for elem in range(layer.in_):
             for row in range(layer.out_):
                 error = errors[row]
@@ -233,7 +256,6 @@ class NetCon:
 
     def backpropagate(self, y, x, l_r):
         j = self.nl_count
-        print('j', j)
         for i in range(j - 1, -1, - 1):
             if i == j - 1:
                 self.calc_out_error(y)
@@ -241,11 +263,11 @@ class NetCon:
                 self.calc_hid_error(i)
 
         for i in range(j - 1, 0, - 1):
-            layer = self.net[i]
-            layer_prev = self.net[i - 1]
+            layer = self.net_dense[i]
+            layer_prev = self.net_dense[i - 1]
             self.upd_matrix(i, layer.errors, layer_prev.hidden, l_r)
 
-        self.upd_matrix(0, self.net[0].errors,
+        self.upd_matrix(0, self.net_dense[0].errors,
                         x, l_r)
 
     def answer_nn_direct(self, inputs):
@@ -313,6 +335,9 @@ class NetCon:
         plt.savefig(f_name)
         print("Graphic saved")
         plt.show()
+
+    def __str__(self):
+        return str(self.b_c)    
 #############################################
 
 

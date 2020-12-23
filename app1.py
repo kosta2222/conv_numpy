@@ -7,7 +7,7 @@ def main():
     train_inp = ((1, 1), (0, 0), (0, 1), (1, 0))  # Логическое И
     train_out = ([1], [0], [0], [0])
 
-    epochs = 1000
+    epochs = 100
     l_r = 0.1
 
     errors_y = []
@@ -17,8 +17,9 @@ def main():
 
     net = NetCon()
     # Создаем слои
-    net.cr_lay(2, 3, PIECE_WISE_LINEAR, True, INIT_W_MY)
-    net.cr_lay(3, 1, PIECE_WISE_LINEAR, True, INIT_W_MY)
+    net.cr_dense(2, 3, PIECE_WISE_LINEAR, True, INIT_W_MY)
+    net.cr_dense(3, 1, PIECE_WISE_LINEAR, True, INIT_W_MY)
+    print('net', net)
 
     for ep in range(epochs):  # Кол-во повторений для обучения
         gl_e = 0
