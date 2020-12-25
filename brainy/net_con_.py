@@ -6,8 +6,10 @@ import random
 # from .serial_deserial import to_file, deserialization
 import sys
 
+from nn_constants import *
 
-TRESHOLD_FUNC = 0
+
+""" TRESHOLD_FUNC = 0
 TRESHOLD_FUNC_DERIV = 1
 SIGMOID = 2
 SIGMOID_DERIV = 3
@@ -32,7 +34,7 @@ MODIF_MSE = 20
 NOOP = 0
 ACC_GRAD = 1
 APPLY_GRAD = 2
-DENSE = 3
+DENSE = 3 """
 
 
 class Dense:
@@ -56,14 +58,15 @@ class Dense:
 
 
 class NetCon:
-    def __init__(self, alpha_sigmoid=1, alpha_tan=1, beta_tan=1):
-        self.net_dense = [None] * 2  # Двойной перпецетрон
+    def __init__(self, alpha_sigmoid=1, alpha_tan=1, beta_tan=1, alpha_leaky_relu=1):
+        self.net_dense = [None] * 3  
         self.alpha_sigmoid = alpha_sigmoid
         self.alpha_tan = alpha_tan
         self.beta_tan = beta_tan
-        for l_ind in range(2):
-            self.net_dense[l_ind] = Dense()
-        self.sp_d = -1  # алокатор для слоев
+        self.alpha_leaky_relu=alpha_leaky_relu
+        for i in range(3): # Статическое выделение слоев
+            self.net_dense[i] = Dense()
+        self.sp_d = -1  # алокатор для слоев fcn
         self.nl_count = 0  # количество слоев
         self.b_c_forward = []
         self.b_c_bacward_tmp = []
@@ -72,10 +75,11 @@ class NetCon:
         self.ready = False
 
     def make_hidden(self, layer, inputs: list):
-        # layer = self.net[layer_ind]
-        for row in range(layer.out_):
+        len_layer_out=layer.out_
+        len_layer_in=layer.in_
+        for row in range(len_layer_out):
             tmp_v = 0
-            for elem in range(layer.in_):
+            for elem in range(len_layer_in):
                 tmp_v += layer.matrix[row][elem] * inputs[elem]
             if layer.with_bias:
                 tmp_v += layer.biases[row]
@@ -137,7 +141,7 @@ class NetCon:
             else:
                 return 0
         elif op == TRESHOLD_FUNC_HALF:
-            if x >= 1/2:
+            if x >= 0.5:
                 return 1
             else:
                 return 0
@@ -199,7 +203,6 @@ class NetCon:
             self.b_c_bacward[i] = self.b_c_bacward_tmp.pop()
 
     def calc_out_error(self, layer, targets):
-        # layer = self.net_dense[self.nl_count-1]
         out_ = layer.out_
         for row in range(out_):
             layer.errors[row] =\
@@ -207,20 +210,21 @@ class NetCon:
                 layer.act_func + 1, layer.hidden[row])
 
     def calc_hid_error(self, layer, layer_next):
-        # layer = self.net_dense[layer_ind]
-        # layer_next = self.net_dense[layer_ind + 1]
-        for elem in range(layer_next.in_):
+        len_layer_next_in=layer_next.in_
+        len_layer_next_out=layer_next.out_
+        for elem in range(len_layer_next_in):
             summ = 0
-            for row in range(layer_next.out_):
+            for row in range(len_layer_next_out):
                 summ += layer_next.matrix[row][elem] * \
                     layer_next.errors[row]
             layer.errors[elem] = summ * self.operations(
                 layer.act_func + 1, layer.hidden[elem])
 
     def upd_matrix(self, layer, errors, inputs, lr):
-        # layer = self.net_dense[layer_ind]
-        for elem in range(layer.in_):
-            for row in range(layer.out_):
+        len_layer_out=layer.out_
+        len_layer_in=layer.in_
+        for elem in range(len_layer_in):
+            for row in range(len_layer_out):
                 error = errors[row]
                 layer.matrix[row][elem] -= lr * \
                     error * inputs[elem]
@@ -265,9 +269,8 @@ class NetCon:
 
     def backpropagate(self, y, x, l_r):
         j = self.nl_count
-        # for i in range(j - 1, -1, - 1):
-        #     layer = self.net_dense[i]
         len_b_c_bacward = len(self.b_c_bacward)
+
         while self.ip < len_b_c_bacward:
             op = self.b_c_bacward[self.ip]
             if op == DENSE:
@@ -293,61 +296,16 @@ class NetCon:
                 if i == 0:
                     self.upd_matrix(self.net_dense[i], self.net_dense[i].errors,
                                     x, l_r)
+                    # layer.errors=[0]*10
                 else:
                     self.upd_matrix(layer, layer.errors,
                                     layer_prev.hidden, l_r)
-
+                
             self.ip += 1
 
         self.ip = 0
 
-        # for i in range(j - 1, 0, - 1):
-        #     layer = self.net_dense[i]
-        #     layer_prev = self.net_dense[i - 1]
-        #     self.upd_matrix(layer, layer.errors, layer_prev.hidden, l_r)
-
-        # self.upd_matrix(self.net_dense[0], self.net_dense[0].errors,
-        #                 x, l_r)
-
-        """len_b_c_bacward = len(self.b_c_bacward)
-
-        while self.ip < len_b_c_bacward:
-            op = self.b_c_bacward[self.ip]
-            if op == DENSE:
-                self.ip += 1
-                arg = self.b_c_bacward[self.ip]
-                if arg == self.nl_count-1:
-                    layer = self.net_dense[arg]
-                    layer_prev = self.net_dense[arg - 1]
-                    self.calc_out_error(layer, y)
-                    self.upd_matrix(layer, layer.errors,
-                                   layer_prev.hidden, l_r)
-                elif arg == 0:
-                    print('op2')
-                    layer = self.net_dense[0]
-                    layer_next = self.net_dense[arg + 1]
-                    self.calc_hid_error(layer, layer_next)
-                    self.upd_matrix(layer, layer.errors,
-                                    x, l_r)
-                else:
-                    layer = self.net_dense[arg]
-                    layer_next = self.net_dense[arg + 1]
-                    layer_prev = self.net_dense[arg - 1]
-                    self.calc_hid_error(layer, layer_next)
-                    self.upd_matrix(layer, layer.errors,
-                                   layer_prev.hidden, l_r) """
-        """ j = self.nl_count
-        for i in range(j - 1, 0, - 1):
-            layer = self.net_dense[i]
-            layer_prev = self.net_dense[i - 1]
-            self.upd_matrix(layer, layer.errors, layer_prev.hidden, l_r)
-
-        self.upd_matrix(self.net_dense[0], self.net_dense[0].errors,
-                        x, l_r)
-        self.ip += 1"""
-
-        self.ip = 0  # сбрасываем ip так обратное распространение будет в цикле
-
+       
     def answer_nn_direct(self, inputs):
         out_nn = self.feed_forwarding(inputs)
         return out_nn
@@ -441,8 +399,11 @@ if __name__ == '__main__':
         net.get_b_c_bacward()
         print('net', net)
 
+        samp_cnt = 1
+
         for ep in range(epochs):  # Кол-во повторений для обучения
             gl_e = 0
+            samp_p = 0
             for single_array_ind in range(len(train_inp)):
 
                 inputs = train_inp[single_array_ind]
