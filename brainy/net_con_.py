@@ -46,7 +46,7 @@ class Dense:
         self.cost_signals = [0] * 10  # вектор взвешенного состояния нейронов
         self.act_func = RELU
         self.hidden = [0] * 10  # вектор после функции активации
-        self.errors = [0] * 10  # вектор ошибок слоя
+        self.errors = [0] * 90  # вектор ошибок слоя
         self.with_bias = False
         for row in range(10):  # создаем матрицу весов
             # подготовка матрицы весов,внутренняя матрица
@@ -112,18 +112,14 @@ class NetCon:
 
         # просто байткод для прямого распространения - стек
         self.b_c_forward.append(DENSE)
-        # байткод будет очередь для обратного распространения
-        self.b_c_bacward_tmp.append(self.sp_d)
         self.b_c_forward.append(self.sp_d)
+        # байткод будет наоборот
+        self.b_c_bacward_tmp.append(self.sp_d)
         self.b_c_bacward_tmp.append(DENSE)
 
     # Различные операции по числовому коду
 
     def operations(self, op, x):
-        alpha_leaky_relu = 1.7159
-        alpha_sigmoid = 2
-        alpha_tan = 1.7159
-        beta_tan = 2/3
         if op == RELU:
             if (x <= 0):
                 return 0
@@ -159,12 +155,12 @@ class NetCon:
             return 1
         elif op == LEAKY_RELU:
             if (x <= 0):
-                return alpha_leaky_relu
+                return self.alpha_leaky_relu
             else:
                 return 1
         elif op == LEAKY_RELU_DERIV:
             if (x <= 0):
-                return alpha_leaky_relu
+                return self.alpha_leaky_relu
             else:
                 return 1
         elif op == SIGMOID:
@@ -261,7 +257,6 @@ class NetCon:
 
         self.ip = 0  # сбрасываем ip так прямое распространение будет в цикле
 
-        #j = self.nl_count
         last_layer = self.net_dense[self.sp_d]
 
         return self.get_hidden(last_layer)
@@ -395,10 +390,6 @@ if __name__ == '__main__':
         net.cr_dense(2, 3, PIECE_WISE_LINEAR, True, INIT_W_MY)
         net.cr_dense(3, 1, PIECE_WISE_LINEAR, True, INIT_W_MY)
         net.get_b_c_bacward()
-        print('net', net)
-
-        samp_cnt = 1
-
         for ep in range(epochs):  # Кол-во повторений для обучения
             gl_e = 0
             samp_p = 0

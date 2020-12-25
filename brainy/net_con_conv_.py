@@ -72,13 +72,16 @@ class NetConConv(NetCon):
 
         self.b_c_forward.append(CONV2D_OP)
         self.b_c_forward.append(self.sp_conv)
+        self.b_c_bacward_tmp.append(self.sp_conv)
+        self.b_c_bacward_tmp.append(CONV2D_OP)
 
     def cr_flatten(self):
-        self.sp_d+=1
-        layer=self.net_dense[self.sp_d]
-        layer.errors=[0] * 100
+        self.sp_d += 1
+        layer = self.net_dense[self.sp_d]
         self.b_c_forward.append(FLATTEN)
-        self.b_c_forward.append(self.sp_d)    
+        self.b_c_forward.append(self.sp_d)
+        self.b_c_bacward_tmp.append(self.sp_d)
+        self.b_c_bacward_tmp.append(FLATTEN)
 
     def convolution(self, layer: Conv2D, inputs):
 
@@ -92,7 +95,7 @@ class NetConConv(NetCon):
 
         # convolve each filter over the image
         len_layer_n_f = layer.n_f
-        layer_act_func=layer.act_func
+        layer_act_func = layer.act_func
         for curr_f in range(len_layer_n_f):
             curr_y = out_y = 0
             # move filter vertically across the image
@@ -110,7 +113,8 @@ class NetConConv(NetCon):
                                curr_x:curr_x+layer.f_width,\
                                :]) + layer.bias[curr_f]
                     # out без curr_f 2 d тензор - матрица, так это ряд карт признаков, 2 d матриц
-                    layer.out[curr_f, out_y, out_x] = self.operations(layer_act_func,summ) 
+                    layer.out[curr_f, out_y, out_x] = self.operations(
+                        layer_act_func, summ)
 
                     curr_x += layer.s
                     out_x += 1
@@ -134,13 +138,13 @@ class NetConConv(NetCon):
                     layer_prev = self.net_dense[i - 1]
                     self.make_hidden(layer, self.get_hidden(layer_prev))
             elif op == FLATTEN:
-                self.ip+=1
-                i=self.b_c_forward[self.ip]
+                self.ip += 1
+                i = self.b_c_forward[self.ip]
 
-                layer_conv=self.net_conv[self.sp_conv]
-                inputs2fcn=layer_conv.out.flatten().tolist()
-                layer=self.net_dense[i]
-                layer.hidden=inputs2fcn 
+                layer_conv = self.net_conv[self.sp_conv]
+                inputs2fcn = layer_conv.out.flatten().tolist()
+                layer = self.net_dense[i]
+                layer.hidden = inputs2fcn
             elif op == CONV2D_OP:
                 self.ip += 1
                 i = self.b_c_forward[self.ip]
@@ -159,10 +163,9 @@ class NetConConv(NetCon):
 
         last_layer = self.net_dense[self.sp_d]
 
-        return self.get_hidden(last_layer)  
+        return self.get_hidden(last_layer)
 
     def backpropagate(self, y, x, l_r):
-        j = self.nl_count
         len_b_c_bacward = len(self.b_c_bacward)
 
         while self.ip < len_b_c_bacward:
@@ -171,11 +174,19 @@ class NetConConv(NetCon):
                 self.ip += 1
                 i = self.b_c_bacward[self.ip]
                 layer = self.net_dense[i]
-                if i == j - 1:
+                if i == self.sp_d:
                     self.calc_out_error(layer, y)
                 else:
                     layer_next = self.net_dense[i + 1]
                     self.calc_hid_error(layer, layer_next)
+            elif op == FLATTEN:
+                self.ip += 1
+                i = self.b_c_bacward[self.ip]
+                layer = self.net_dense[i]
+                layer_next = self.net_dense[i + 1]
+                layer.in_ = layer_next.in_
+                layer.errors = layer_next.errors
+
             self.ip += 1
 
         self.ip = 0
@@ -190,15 +201,29 @@ class NetConConv(NetCon):
                 if i == 0:
                     self.upd_matrix(self.net_dense[i], self.net_dense[i].errors,
                                     x, l_r)
-                    # layer.errors=[0]*10
                 else:
                     self.upd_matrix(layer, layer.errors,
                                     layer_prev.hidden, l_r)
-                
+            elif op == CONV2D_OP:
+                layer: Conv2D = None
+                self.ip += 1
+                i = self.b_c_bacward[self.ip]
+                if i == 0:
+                    layer = self.net_conv[i]
+                    layer_next = self.net_dense[0]  # Flatten слой
+                    upd = np.array(layer_next.errors)
+                    layer_next_in = layer_next.in_
+                    upd_sliced = upd[: layer_next_in]
+                    upd_reshaped = upd_sliced.reshape(
+                        layer.f_height, layer.f_width)
+                    layer_n_f = layer.n_f
+                    layer_filt = layer.filt
+                    for fil in range(layer_n_f):
+                        layer_filt[fil] -= upd_reshaped
+
             self.ip += 1
 
         self.ip = 0
-           
 
 
 if __name__ == '__main__':
@@ -209,9 +234,59 @@ if __name__ == '__main__':
         x_0 = x[0].reshape(x[0].shape[0], x[0].shape[1], 1)
         # print('x', x[0])
         # print('y', y[0])
-        cnv.cr_conv2d_lay((1, 5, 4, 1), 2, first_image_shape=(20, 18, 1), act_func=SIGMOID)
+        cnv.cr_conv2d_lay((1, 5, 4, 1), 2, first_image_shape=(
+            20, 18, 1), act_func=SIGMOID)
         cnv.cr_flatten()
         cnv.cr_dense(in_=64,  out_=2)
         print(cnv.feed_forwarding(x_0))
 
-    main()
+    #main()
+    def main2():
+
+        epochs = 100
+        l_r = 0.1
+
+        errors_y = []
+        epochs_x = []
+
+        train_inp, x_test, train_out, y_test = get_train_test(split_ratio=0.9) 
+        # Создаем обьект параметров сети
+      
+        cnv = NetConConv()
+        # Создаем слои
+        cnv.cr_conv2d_lay((1, 5, 4, 1), 2, first_image_shape=(
+            20, 18, 1), act_func=SIGMOID)
+        cnv.cr_flatten()
+        cnv.cr_dense(in_=64,  out_=3, act_func=SIGMOID)
+        cnv.get_b_c_bacward()
+        for ep in range(epochs):  # Кол-во повторений для обучения
+            gl_e = 0
+            for single_array_ind in range(len(train_inp)):
+
+                inputs = train_inp[single_array_ind]
+                inputs_reshaped=inputs.reshape(inputs.shape[0], inputs.shape[1], 1)
+                output = cnv.feed_forwarding(inputs_reshaped)
+
+                e = cnv.calc_diff(output, train_out[single_array_ind])
+
+                gl_e += cnv.get_err(e)
+
+                cnv.backpropagate(train_out[single_array_ind],
+                                  train_inp[single_array_ind], l_r)
+
+            # gl_e /= 2
+            print("error", gl_e)
+            print("ep", ep)
+            print()
+
+            errors_y.append(gl_e)
+            epochs_x.append(ep)
+
+            if gl_e == 0:
+                break
+
+        cnv.plot_gr('gr.png', errors_y, epochs_x)
+        acc = net.evaluate(train_inp, train_out)
+        print('acc', acc)
+
+    main2()
