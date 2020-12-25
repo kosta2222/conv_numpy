@@ -41,7 +41,7 @@ class Dense:
     def __init__(self):  # конструктор
         self.in_ = None  # количество входов слоя
         self.out_ = None  # количество выходов слоя
-        self.matrix = [0] * 10  # матрица весов
+        self.matrix = [0] * 100  # матрица весов
         self.biases = [0] * 10
         self.cost_signals = [0] * 10  # вектор взвешенного состояния нейронов
         self.act_func = RELU
@@ -50,7 +50,7 @@ class Dense:
         self.with_bias = False
         for row in range(10):  # создаем матрицу весов
             # подготовка матрицы весов,внутренняя матрица
-            self.inner_m = list([0] * 10)
+            self.inner_m = list([0] * 100)
             self.matrix[row] = self.inner_m
 
 
@@ -67,7 +67,6 @@ class NetCon:
         for i in range(3): # Статическое выделение слоев
             self.net_dense[i] = Dense()
         self.sp_d = -1  # алокатор для слоев fcn
-        self.nl_count = 0  # количество слоев
         self.b_c_forward = []
         self.b_c_bacward_tmp = []
         self.b_c_bacward = None
@@ -80,7 +79,8 @@ class NetCon:
         for row in range(len_layer_out):
             tmp_v = 0
             for elem in range(len_layer_in):
-                tmp_v += layer.matrix[row][elem] * inputs[elem]
+                tmp_v += layer.matrix[row][elem] *\
+                     inputs[elem]
             if layer.with_bias:
                 tmp_v += layer.biases[row]
             layer.cost_signals[row] = tmp_v
@@ -90,7 +90,7 @@ class NetCon:
     def get_hidden(self, objLay: Dense):
         return objLay.hidden
 
-    def cr_dense(self,   in_=0, out_=0, act_func=None, with_bias=False, init_w=INIT_W_RANDOM):
+    def cr_dense(self,   in_=0, out_=0, act_func=TRESHOLD_FUNC_HALF, with_bias=True, init_w=INIT_W_MY):
         self.sp_d += 1
         layer = self.net_dense[self.sp_d]
         layer.in_ = in_
@@ -101,7 +101,7 @@ class NetCon:
             layer.with_bias = True
         else:
             layer.with_bias = False
-
+        
         for row in range(out_):
             for elem in range(in_):
                 layer.matrix[row][elem] = self.operations(
@@ -116,7 +116,6 @@ class NetCon:
         self.b_c_bacward_tmp.append(self.sp_d)
         self.b_c_forward.append(self.sp_d)
         self.b_c_bacward_tmp.append(DENSE)
-        self.nl_count += 1
 
     # Различные операции по числовому коду
 
@@ -262,13 +261,12 @@ class NetCon:
 
         self.ip = 0  # сбрасываем ip так прямое распространение будет в цикле
 
-        j = self.nl_count
-        last_layer = self.net_dense[j-1]
+        #j = self.nl_count
+        last_layer = self.net_dense[self.sp_d]
 
         return self.get_hidden(last_layer)
 
     def backpropagate(self, y, x, l_r):
-        j = self.nl_count
         len_b_c_bacward = len(self.b_c_bacward)
 
         while self.ip < len_b_c_bacward:
@@ -277,7 +275,7 @@ class NetCon:
                 self.ip += 1
                 i = self.b_c_bacward[self.ip]
                 layer = self.net_dense[i]
-                if i == j - 1:
+                if i == self.sp_d:
                     self.calc_out_error(layer, y)
                 else:
                     layer_next = self.net_dense[i + 1]
